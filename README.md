@@ -8,7 +8,8 @@ color with CIE1931 profile.
 Supports 3 chains with many 32x32-panels each.
 On a Raspberry Pi 2, you can easily chain 12 panels in that chain (so 36 panels total),
 but you can stretch that to up to 96-ish panels (32 chain length) and still reach
-around 100Hz refresh rate with full 24Bit color!
+around 100Hz refresh rate with full 24Bit color (theoretical - never tested this;
+there might likely be timing problems with the panels that will creep up then).
 With fewer colors you can control even more, faster.
 
 The LED-matrix **library** is (c) Henner Zeller <h.zeller@acm.org> with
@@ -108,17 +109,17 @@ panels somewhere outside the picture on the left); note the notch on the right
 side of the connector:
 ![Hub 75 IDC connector][hub75-idc]
 
-The RPi only has 3.3V logic output level, but the display operated at 5V
-interprets these logic levels just fine, just make sure to run a short
-cable to the board.
+The RPi only has 3.3V logic output level, but many displays operated at 5V
+interprets these logic levels fine, just make sure to run a short
+cable to the board (if you see problems, see [troubleshouting paragraph](#troubleshooting)).
 If you do run into glitches or erratic pixels, consider some line-buffering,
 e.g. using the [active adapter PCB](./adapter/).
 Since we only need output pins on the RPi, we don't need to worry about level
 conversion back.
 
-For a single chain of LED-panels, we need 13 IO pins, which fit all in the
-header of the old Raspberry Pis. Newer Raspberry Pis have 40 GPIO pins, which
-allows us to connect three parallel chains of RGB panels.
+For a single chain of LED-panels, we need 13 IO lines, which fit all in the
+header of the old Raspberry Pis. Newer Raspberry Pis with 40 pins have more
+GPIO lines which allows us to connect three parallel chains of RGB panels.
 
 For reference, this is how the numbering on the Raspberry Pi looks like:
 <a href="img/raspberry-gpio.jpg"><img src="img/raspberry-gpio.jpg" width="600px"></a>
@@ -137,6 +138,9 @@ for simplicity).
 Then for each panel, there is a set of (R1, G1, B1, R2, G2, B2) that you have
 to connect to the corresponding pins that are marked `[1]`, `[2]` and `[3]` for
 chain 1, 2, and 3 below.
+If you only connect one panel or have one chain, connect it to `[1]` (:smile:); if you
+use parallel chains, add the other `[2]` and `[3]`.
+
 To make things quicker to navigate visually, each chain is marked with a separate
 icon:
 
@@ -305,21 +309,36 @@ parameters and the coordinate system.
 <a href="adapter/"><img src="img/three-parallel-panels-soic.jpg" width="300px"></a>
 
 ## Remapping coordinates ##
-You can as well chain multiple boards together and then arrange them in a
-different layout. Say you have 4 displays with 32x32 -- if we chain
+You might choose a different physical layout than the wiring provides.
+
+Say you have 4 displays with 32x32 and only a single output
+like with a Raspberry Pi 1 or the Adafruit HAT -- if we chain
 them, we get a display 32 pixel high, (4*32)=128 pixel long. If we arrange
-the boards in a square, we get a logical display of 64x64 pixels.
-
-For convenience, we should only deal with the logical coordinates of
-64x64 pixels in our program: implement a `Canvas`
-interface to do the coordinate mapping. Have a look at
-`class LargeSquare64x64Canvas` for an example and see how it is delegating to
-the underlying RGBMatrix with changed coordinates.
-
-Here is how the wiring would look like:
+the boards in a square, we get a logical display of 64x64 pixels:
 
 <img src="img/chained-64x64.jpg" width="400px"> In action:
 [![PixelPusher video][pp-vid]](http://youtu.be/ZglGuMaKvpY)
+
+How can we make this 'folded' 128x32 screen behave like a 64x64 screen ?
+
+In the API, there is an interface to implement,
+a [`CanvasTransformer`](./include/canvas.h) that allows to program re-arrangements
+of pixels in any way. You can plug such a `CanvasTransformer` into the RGBMatrix
+to use the new layout (`void RGBMatrix::SetTransformer(CanvasTransformer *transformer)`).
+
+Sometimes you even need this for the panel itself: In newer panels
+(often with 1:4 multiplexing) the pixels are often not mapped in
+a straight-forward way, but in a snake arrangement for instance. The CanvasTransformer
+allows you to work around that (sorry, I have not seen these panels myself so that
+I couldn't test that; but if you come accross one, you might want to send a pull-request
+with a new CanvasTransformer).
+
+Back to the 64x64 arrangement:
+
+There is a sample implementation `class LargeSquare64x64Transformer` that maps
+the 128x32 pixel logical arrangement into the 64x64 arrangement doing
+the coordinate mapping. In the demo program and the `led-image-viewer`, you
+can activate this with the `-L` option.
 
 Using the API
 -------------
@@ -384,8 +403,8 @@ Or, if you are lazy, just import the whole namespace:
 Read the [`minimal-example.cc`](./minimal-example.cc) to get started, then
 have a look into [`demo-main.cc`](./demo-main.cc).
 
-Help, some pixels are not displayed properly
---------------------------------------------
+Troubleshooting
+---------------
 Some panels don't handle the 3.3V logic level well, or the RPi output drivers
 have trouble driving longer cables, in particular with
 faster Raspberry Pis Version 2. This results in artifacts like randomly
@@ -396,17 +415,28 @@ If you encounter this, try these things
    - Make sure to have as short as possible flat-cables connecting your
      Raspberry Pi with the LED panel.
 
-   - Use an adapter board with a bus-driver that acts as level shifter between
-     3.3V and 5V. You can find [active adapter PCBs](./adapter/) in a
-     subdirectory of this project.
+   - In particular if the chips close to the input of the LED panel
+     read 74HC245 instead of 74HCT245 or 74AHCT245, then this board will not
+     work properly with 3.3V inputs coming from the Pi.
+     Use an [adapter board](./adapter/active-3) with a bus-driver that acts as
+     level shifter between 3.3V and 5V.
+     (In any case, it is always a good idea to use the level shifters).
+
+   - A temporary hack to make HC245 inputs work with the 3.3V levels is to
+     supply only like 4V to the LED panel. But the colors will be off, so not
+     really useable as long-term solution.
 
    - If you can't implement the above things, or still have problems, you can
      slow down the GPIO writing a bit. This will of course reduce the
      frame-rate, so it comes at a cost.
 
-For GPIO slow-down, uncomment the following line in [lib/Makefile](lib/Makefile)
+For GPIO slow-down, the following line in the [lib/Makefile](lib/Makefile)
+is interesting:
 
-     #DEFINES+=-DRGB_SLOWDOWN_GPIO   # remove '#' in the beginning
+     DEFINES+=-DRGB_SLOWDOWN_GPIO=1
+
+The default value is 1, if you still have problems, try the value 2. If you
+know that your display is fast enough, try to comment out that line.
 
 Then `make` again.
 
@@ -457,16 +487,20 @@ guidelines:
      panels to get the needed cross-section.
      (For Americans: that would be ~13 gauge wire for 3 ft and one panel)
 
-   - You might consider using aluminum mounting brackets or bars as part of
-     your power trace solution. With aluminum of 1mm² specific resistivity of
+   - While a star configuration for the cabeling would be optimal (each panel gets
+     an individual wire from the power supply), it is typically sufficient
+     using aluminum mounting brackets or bars as part of
+     your power solution. With aluminum of 1mm² specific resistivity of
      about 28mΩ/meter, you'd need a cross sectional area of about 4mm² per panel
      and meter.
 
-   - These are the minimum values to not drop more than 50mV. As engineer, you'd
-     like to aim for less than that :)
+     In the following example you see the structural aluminum bars in the middle
+     (covered in colored vinyl) dualing as power bars. The 60A/5V power supply is connected
+     to the center bolts (display uses about 42A all LEDs on):
+     ![Powerbar][powerbar]
 
-   - Often these boards come with connectors that have cables crimped on.
-     These cables are typically too thin; you might want to clip them close to
+   - Often these boards come with cables that have connectors crimped on.
+     Some cheap cables are typically too thin; you might want to clip them close to
      the connector solder your proper, thick cable to it.
 
    - It is good to buffer the current spikes directly at the panel. The most
@@ -483,10 +517,8 @@ guidelines:
      fits easier under board).
      (In reality, we need of course less, as the highest ripple comes with
       50% duty cyle thus half the current; also the input is recharching all
-      the time. But: as engineer plan for maximum and then some).
-
-   - If you still see noise, increase the voltage sligthly above 5V. But note,
-     this is typically only a symptom of too thin traces.
+      the time. But: as engineer plan for maximum and then some; in the picture
+      above I am using 1x3300uF per panel and it works fine).
 
 Now welcome your over-engineered power solution :)
 
@@ -559,6 +591,7 @@ things, like this installation by Dirk in Scharbeutz, Germany:
 [time]: ./img/time-display.jpg
 [pp-vid]: ./img/pixelpusher-vid.jpg
 [run-vid]: ./img/running-vid.jpg
+[powerbar]: ./img/powerbar.jpg
 [pixelpush]: https://github.com/hzeller/rpi-matrix-pixelpusher
 [sparkfun]: https://www.sparkfun.com/products/12584
 [ada]: http://www.adafruit.com/product/1484
