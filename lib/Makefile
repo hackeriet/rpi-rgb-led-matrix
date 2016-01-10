@@ -16,7 +16,7 @@ TARGET=librgbmatrix.a
 #DEFINES+=-DINVERSE_RGB_DISPLAY_COLORS
 
 # For curiosity reasons: uncomment to see refresh rate in terminal.
-#DEFINES+=-DSHOW_REFRESH_RATE
+DEFINES+=-DSHOW_REFRESH_RATE
 
 # The signal can be too fast for some LED panels, in particular with newer
 # (faster) Raspberry Pi 2s.
@@ -32,7 +32,7 @@ TARGET=librgbmatrix.a
 # the frame-rate.
 # Sometimes, you even have to give RGB_SLOWDOWN_GPIO=2 for particularly slow
 # panels or bad signal cable situations.
-#DEFINES+=-DRGB_SLOWDOWN_GPIO=1
+DEFINES+=-DRGB_SLOWDOWN_GPIO=1
 
 # ------------ Pinout options; usually no change needed here --------------
 
