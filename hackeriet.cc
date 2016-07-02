@@ -9,6 +9,7 @@
 #include "transformer.h"
 #include "graphics.h"
 
+#include <czmq.h>
 #include <assert.h>
 #include <getopt.h>
 #include <limits.h>
@@ -23,6 +24,9 @@ using std::max;
 
 using namespace rgb_matrix;
 
+extern "C" {
+  void * zmq_setup (const char *, const char *, const char*);
+}
 /*
  * The following are demo image generators. They all use the utility
  * class ThreadedCanvasManipulator to generate new frames.
@@ -1044,13 +1048,12 @@ static int usage(const char *progname) {
   return 1;
 }
 
-
 int main(int argc, char *argv[]) {
   GPIO io;
   bool as_daemon = false;
   int runtime_seconds = -1;
   int demo = -1;
-  int rows = 16;
+  int rows = 32;
   int chain = 1;
   int parallel = 1;
   int scroll_ms = 30;
@@ -1204,20 +1207,7 @@ int main(int argc, char *argv[]) {
   // the matrix continuously.
   ThreadedCanvasManipulator *image_gen = NULL;
 
-  /*
-    Hackeriet additions
 
-    Switching between image gens OK
-    Text generator OK
-    Text scroller OK
-    zeromq triggering K
-    Configurable parameters:
-      scroll speed K
-      setbrightness K
-      scroll text K
-      wait time between effects
-        set sockopt ZMQ_RCVTIMEO
-  */
   /*
   switch (demo) {
   case 0:
@@ -1275,137 +1265,58 @@ int main(int argc, char *argv[]) {
     image_gen = new BrightnessPulseGenerator(matrix);
     break;
   }
+  */
 
-  if (image_gen == NULL)
-    return usage(argv[0]);
+  image_gen = new BrightnessPulseGenerator(matrix);
 
-  // Image generating demo is crated. Now start the thread.
+  // Image generating demo is created. Now start the thread.
   image_gen->Start();
 
   // Now, the image genreation runs in the background. We can do arbitrary
   // things here in parallel. In this demo, we're essentially just
   // waiting for one of the conditions to exit.
-  if (as_daemon) {
-    sleep(runtime_seconds > 0 ? runtime_seconds : INT_MAX);
-  } else if (runtime_seconds > 0) {
-    sleep(runtime_seconds);
-  } else {
-    // Things are set up. Just wait for <RETURN> to be pressed.
-    printf("Press <RETURN> to exit and reset LEDs\n");
-    getchar();
-  }
+  
+  // TODO move magic into getopts
+  const char *private_key_p = "client_cert.txt";
+  const char *server_cert_p = "server.key";
+  const char *server_url = "tcp://mccarthy.microdisko.no:5566";
+  const char *bdf_font_file = "./fonts/10x20.bdf";
 
-  */
+  // Setup ZMQ connection
+  void* client = zmq_setup(server_cert_p, private_key_p, server_url);
 
-  // Text support
-  const char *bdf_font_file="fonts/6x13.bdf";
-  rgb_matrix::Font font;
-  if (!font.LoadFont(bdf_font_file)) {
-    fprintf(stderr, "Couldn't load font '%s'\n", bdf_font_file);
-    return usage(argv[0]);
-  }
-  int x = 0;
-  int y = -1;
-  Color color(255, 255, 255);
-  //y += font.height();
-
-
-  // Set up zmq sub listener
-
-  char *private_key_p = "client_cert.txt";
-  char *server_cert_p = "server.key";
-  char *server_url = "tcp://mccarthy.microdisko.no:5566";
-
-  // Generate the private key if it does not exist
-  struct stat sb;
-  if((stat(private_key_p, &sb) == -1)) {
-    zcert_t *client_cert = zcert_new ();
-    int rc = zcert_save (client_cert, private_key_p);
-    assert (rc == 0);
-    zcert_destroy (&client_cert);
-  }
-
-  // Load server certificate
-  zcert_t *server_cert = zcert_load(server_cert_p);
-  assert(server_cert);
-
-  //  Load our persistent certificate from disk
-  zcert_t *client_cert = zcert_load (private_key_p);
-  assert (client_cert);
-
-  //  Create client socket and configure it to use full encryption
-  zctx_t *ctx = zctx_new ();
-  assert (ctx);
-  void *client = zsocket_new (ctx, ZMQ_SUB);
-  assert (client);
-  zcert_apply (client_cert, client);
-  zsocket_set_curve_serverkey (client, zcert_public_txt(server_cert));
-  zmq_setsockopt(client, "ZMQ_RCVTIMEO", 5000);
-  int rc = zsocket_connect (client, server_url);
-  assert (rc == 0);
-  zsock_set_subscribe(client, "");
-
-  //
-
-
-  // Screen saver effects
-  ThreadedCanvasManipulator *effects[] = {
-    new GrayScaleBlock(canvas),
-    new ColorPulseGenerator(matrix)
-  };
-
-  for (int i=0;i<2;i++){
-    printf("Effect %d\n", i);
-    effects[i]->Start();
-    char *message = zsock_recv (client);
-    effects[i]->Stop();
-    if (message) {
-      zframe_t *frame = zmsg_pop(message);
-      zframe_t *payload;
-      if (zframe_size(frame) > 0)
-        payload = zmsg_pop(message);
-
-      if (zframe_streq(frame, "MSG") || zframe_streq(frame, "DING")){
-        // shit scroller
-        int max_chars=4;
-        const char *line = "Dette er en test";
-
-        for(int i=0;i<strlen(string);i+=max_chars){
-          if (i+max_chars < strlen(string)){
-            char tmp = line[i+max_chars+1];
-            line[i+max_chars+1] = '\0';
-          }
-          rgb_matrix::DrawText(canvas, font, x, y + font.baseline(), color, line[i]);
-          usleep(scroll_ms*1000);
-          if (i+max_chars < strlen(string)){
-            line[i+max_chars+1] = tmp;
-          }
-        }
-      } elseif (zframe_streq(frame, "SETBRIGHT")){
-        brightness = atoi(payload);
-        matrix->SetBrightness(brightness);
-      } elseif (zframe_streq(frame, "SETSPEED")){
-        scroll_ms = atoi(payload);
-      }
-      zframe_destroy(frame);
-      zframe_destroy(payload);
+  // Receive 0mq messages
+  while (1) {
+    if(zsys_interrupted){
+      puts("Interrupted");
+      goto done;
     }
 
+    char *tag;
+    char *msg;
 
-    //
+    // Wait for message
+    int n = zstr_recvx(client, &tag, &msg, NULL);
+    assert(n == 2); // a bit strict
 
+    printf("%s: %s\n", tag, msg);
+
+    // TODO case
+    
+    //Color color(255, 255, 0);
+    //font.LoadFont(bdf_font_file)
+    //rgb_matrix::DrawText(canvas, font, x, y + font.baseline(), color, msg);
+
+    zstr_free(&tag);
+    zstr_free(&msg);
   };
-  sleep(1); // make smaller
-  canvas->Clear();
 
 
-  rgb_matrix::DrawText(canvas, font, x, y + font.baseline(), color, line);
-  sleep(5);
 
-
-  zcert_destroy (&server_cert);
-  zcert_destroy (&client_cert);
-  zctx_destroy (&ctx);
+ done:
+  // zcert_destroy (&server_cert);
+  // zcert_destroy (&client_cert);
+  // zctx_destroy (&ctx);
 
   // Stop image generating thread.
   delete image_gen;

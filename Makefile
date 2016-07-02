@@ -26,7 +26,7 @@ led-matrix : demo-main.o $(RGB_LIBRARY)
 	$(CXX) $(CXXFLAGS) demo-main.o -o $@ $(LDFLAGS)
 
 hackeriet : hackeriet.o $(RGB_LIBRARY)
-	$(CXX) $(CXXFLAGS) hackeriet.o -o $@ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) hackeriet.o -o $@ $(LDFLAGS) zmqclient.o -lczmq
 
 minimal-example : minimal-example.o $(RGB_LIBRARY)
 	$(CXX) $(CXXFLAGS) minimal-example.o -o $@ $(LDFLAGS)
@@ -39,6 +39,9 @@ led-image-viewer: led-image-viewer.o $(RGB_LIBRARY)
 
 %.o : %.cc
 	$(CXX) -I$(RGB_INCDIR) $(CXXFLAGS) -c -o $@ $<
+
+%.o : %.c
+	gcc -c -o $@ $< -lczmq
 
 led-image-viewer.o : led-image-viewer.cc
 	$(CXX) -I$(RGB_INCDIR) $(CXXFLAGS) $(MAGICK_CXXFLAGS) -c -o $@ $<
