@@ -1285,6 +1285,9 @@ int main(int argc, char *argv[]) {
   // Setup ZMQ connection
   void* client = zmq_setup(server_cert_p, private_key_p, server_url);
 
+  rgb_matrix::Font font;
+  font.LoadFont(bdf_font_file);
+  Color color(255, 255, 0);
   // Receive 0mq messages
   while (1) {
     if(zsys_interrupted){
@@ -1299,13 +1302,21 @@ int main(int argc, char *argv[]) {
     int n = zstr_recvx(client, &tag, &msg, NULL);
     assert(n == 2); // a bit strict
 
-    printf("%s: %s\n", tag, msg);
+    printf("\n%s: %s\n", tag, msg);
 
     // TODO case
-    
-    //Color color(255, 255, 0);
-    //font.LoadFont(bdf_font_file)
-    //rgb_matrix::DrawText(canvas, font, x, y + font.baseline(), color, msg);
+
+    image_gen->Stop();
+    canvas->Clear();
+    matrix->SetBrightness(100);
+    int x = 0;
+    int y = 0;
+    rgb_matrix::DrawText(canvas, font, x, y + font.baseline(), color, msg);
+
+    sleep(5);
+    delete image_gen;
+    image_gen = new RotatingBlockGenerator(canvas);
+    image_gen->Start();
 
     zstr_free(&tag);
     zstr_free(&msg);

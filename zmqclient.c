@@ -36,7 +36,7 @@ void *zmq_setup (const char *server_cert_p,
   return client;
 }
 
-int test (void) {
+int main (void) {
   char *private_key_p = "client_cert.txt";
   char *server_cert_p = "server.key";
   char *server_url = "tcp://mccarthy.microdisko.no:5566";
